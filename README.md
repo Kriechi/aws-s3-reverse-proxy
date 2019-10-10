@@ -1,7 +1,12 @@
 # AWS S3 Reverse Proxy
 
-The `aws-s3-proxy` will reverse-proxy all incoming S3 API calls to the public
+The `aws-s3-reverse-proxy` will reverse-proxy all incoming S3 API calls to the public
 AWS S3 backend by rewriting the Host header and re-signing the original request.
+
+Possible use cases and scenarios include:
+  * Auditing & logging of S3 access from your local network or specific clients
+  * Redirecting S3 buckets to a different AWS Region
+  * AWS DirectConnect, to run a reverse-proxy from your local network
 
 AWS uses its [Signature
 v4]((https://docs.aws.amazon.com/general/latest/gr/signature-version-4.html)) to
@@ -17,6 +22,13 @@ In order to re-sign any Signature v4 request, we need the full set of AWS
 security credentials, the `AWS_ACCESS_KEY_ID` is already part of the
 `Authorization`, but the `AWS_SECRET_ACCESS_KEY` needs to be provided as
 configuration option to the reverse proxy.
+
+The `aws-s3-reverse-proxy` is NOT capable of reverse-proxying arbitrary AWS S3
+requests from unknown (or unaware) users & clients. The Signature v4 system put
+in place by AWS requires the full knowledge of the AWS security credentials to
+change specific HTTP headers. This means every deployment of
+`aws-s3-reverse-proxy` needs to be aware of the expected AWS security
+credentials to re-sign each request.
 
 ## Features
 
@@ -53,7 +65,7 @@ docker build -t aws-s3-reverse-proxy .
 $ docker run --rm -ti \
   -p 8099 \
   aws-s3-reverse-proxy
-  --allowed-source-addr=192.168.1.0/24
+  --allowed-source-subnet=192.168.1.0/24
   --allowed-endpoint=my.host.example.com:8099
   --aws-credentials=AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY
 ```
@@ -61,7 +73,7 @@ $ docker run --rm -ti \
 Or you can use a config file:
 ```
 # config.cfg file for aws-3-reverse-proxy
---allowed-source-addr=192.168.1.0/24
+--allowed-source-subnet=192.168.1.0/24
 --allowed-endpoint=my.host.example.com:8099
 --aws-credentials=AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY
 ```
