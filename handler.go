@@ -21,6 +21,9 @@ var awsAuthorizationSignedHeadersRegexp = regexp.MustCompile("SignedHeaders=([a-
 
 // Handler is a special handler that re-signs any AWS S3 request and sends it upstream
 type Handler struct {
+	// Print debug information
+	Debug bool
+
 	// eu-central-1
 	Region string
 
@@ -51,7 +54,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.WithError(err).Error("unable to proxy request")
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(err.Error()))
+
+		// for security reasons, only write detailed error information in debug mode
+		if h.Debug {
+			w.Write([]byte(err.Error()))
+		}
 		return
 	}
 
@@ -101,7 +108,12 @@ func (h *Handler) validateIncomingSourceIP(req *http.Request) error {
 	return nil
 }
 
-func (h *Handler) validateIncomingAuthorization(req *http.Request) (string, error) {
+func (h *Handler) validateIncomingHeaders(req *http.Request) (string, error) {
+	amzDateHeader := req.Header["X-Amz-Date"]
+	if len(amzDateHeader) != 1 {
+		return "", fmt.Errorf("X-Amz-Date header missing or set multiple times: %v", req)
+	}
+
 	authorizationHeader := req.Header["Authorization"]
 	if len(authorizationHeader) != 1 {
 		return "", fmt.Errorf("Authorization header missing or set multiple times: %v", req)
@@ -188,8 +200,8 @@ func (h *Handler) buildUpstreamRequest(customEndpoint string, req *http.Request)
 		return nil, err
 	}
 
-	// Validate Authorization header
-	accessKeyID, err := h.validateIncomingAuthorization(req)
+	// Validate incoming headers and extract AWS_ACCESS_KEY_ID
+	accessKeyID, err := h.validateIncomingHeaders(req)
 	if err != nil {
 		return nil, err
 	}
@@ -222,6 +234,9 @@ func (h *Handler) buildUpstreamRequest(customEndpoint string, req *http.Request)
 
 	// Assemble a new upstream request
 	proxyReq, err := h.assembleUpstreamReq(signer, req)
+	if err != nil {
+		return nil, err
+	}
 
 	// Disable Go's "Transfer-Encoding: chunked" madness
 	proxyReq.ContentLength = req.ContentLength
