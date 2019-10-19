@@ -30,6 +30,13 @@ change specific HTTP headers. This means every deployment of
 `aws-s3-reverse-proxy` needs to be aware of the expected AWS security
 credentials to re-sign each request.
 
+## Releases
+
+Get the latest Docker image from [from
+DockerHub](https://hub.docker.com/r/thomaskriechbaumer/aws-s3-reverse-proxy/tags)
+or download the source release [from
+GitHub](https://github.com/Kriechi/aws-s3-reverse-proxy/releases).
+
 ## Features
 
   * can reverse-proxy to a configurable AWS Region
