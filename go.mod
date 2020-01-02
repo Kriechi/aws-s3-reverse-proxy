@@ -1,4 +1,4 @@
-module github.com/rclone/rclone
+module github.com/Kriechi/aws-s3-reverse-proxy
 
 require (
 	github.com/aws/aws-sdk-go v1.25.31
