@@ -19,7 +19,8 @@ import (
 // Options for aws-s3-reverse-proxy command line arguments
 type Options struct {
 	Debug                 bool
-	Port                  string
+	ListenAddr            string
+	MetricsListenAddr     string
 	AllowedSourceEndpoint string
 	AllowedSourceSubnet   []string
 	AwsCredentials        []string
@@ -28,14 +29,14 @@ type Options struct {
 	UpstreamEndpoint      string
 	CertFile              string
 	KeyFile               string
-	NoPrometheusMetrics   bool
 }
 
 // NewOptions defines and parses the raw command line arguments
 func NewOptions() Options {
 	var opts Options
 	kingpin.Flag("verbose", "enable additional logging").Short('v').BoolVar(&opts.Debug)
-	kingpin.Flag("port", "port to listen for requests on").Default(":8099").StringVar(&opts.Port)
+	kingpin.Flag("listen-addr", "address:port to listen for requests on").Default(":8099").StringVar(&opts.ListenAddr)
+	kingpin.Flag("metrics-listen-addr", "address:port to listen for Prometheus metrics on, empty to disable").Default("").StringVar(&opts.MetricsListenAddr)
 	kingpin.Flag("allowed-endpoint", "allowed endpoint (Host header) to accept for incoming requests").Required().PlaceHolder("my.host.example.com:8099").StringVar(&opts.AllowedSourceEndpoint)
 	kingpin.Flag("allowed-source-subnet", "allowed source IP addresses with netmask").Default("127.0.0.1/32").StringsVar(&opts.AllowedSourceSubnet)
 	kingpin.Flag("aws-credentials", "set of AWS credentials").PlaceHolder("\"AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY\"").StringsVar(&opts.AwsCredentials)
@@ -44,7 +45,6 @@ func NewOptions() Options {
 	kingpin.Flag("upstream-endpoint", "use this S3 endpoint for upstream connections, instead of public AWS S3").StringVar(&opts.UpstreamEndpoint)
 	kingpin.Flag("cert-file", "path to the certificate file").Default("").StringVar(&opts.CertFile)
 	kingpin.Flag("key-file", "path to the private key file").Default("").StringVar(&opts.KeyFile)
-	kingpin.Flag("no-prometheus-metrics", "disable Prometheus metrics server").Default("false").BoolVar(&opts.NoPrometheusMetrics)
 	kingpin.Parse()
 	return opts
 }
@@ -125,23 +125,27 @@ func main() {
 	log.Infof("Parsed %d AWS credential sets.", len(handler.AWSCredentials))
 
 	var wrappedHandler http.Handler = handler
-	if opts.NoPrometheusMetrics {
-		server := http.NewServeMux()
-		server.Handle("/metrics", promhttp.Handler())
-		go http.ListenAndServe("127.0.0.1:9001", server)
+	if len(opts.MetricsListenAddr) > 0 && len(strings.Split(opts.MetricsListenAddr, ":")) == 2 {
+		metricsHandler := http.NewServeMux()
+		metricsHandler.Handle("/metrics", promhttp.Handler())
+
+		log.Infof("Listening for secure Prometheus metrics on %s", opts.MetricsListenAddr)
+		go log.Fatal(
+			http.ListenAndServe(opts.MetricsListenAddr, metricsHandler),
+		)
 		wrappedHandler = wrapPrometheusMetrics(handler)
 	}
 
 	if len(opts.CertFile) > 0 || len(opts.KeyFile) > 0 {
 		log.Infof("Reading HTTPS certificate from %v and %v.", opts.CertFile, opts.KeyFile)
-		log.Infof("Listening for secure HTTPS connections on port %s", opts.Port)
+		log.Infof("Listening for secure HTTPS connections on %s", opts.ListenAddr)
 		log.Fatal(
-			http.ListenAndServeTLS(opts.Port, opts.CertFile, opts.KeyFile, wrappedHandler),
+			http.ListenAndServeTLS(opts.ListenAddr, opts.CertFile, opts.KeyFile, wrappedHandler),
 		)
 	} else {
-		log.Infof("Listening for HTTP connections on port %s", opts.Port)
+		log.Infof("Listening for HTTP connections on %s", opts.ListenAddr)
 		log.Fatal(
-			http.ListenAndServe(opts.Port, wrappedHandler),
+			http.ListenAndServe(opts.ListenAddr, wrappedHandler),
 		)
 	}
 }
