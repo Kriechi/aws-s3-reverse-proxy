@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 
+	_ "net/http/pprof"
+
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -21,6 +23,7 @@ type Options struct {
 	Debug                 bool
 	ListenAddr            string
 	MetricsListenAddr     string
+	PprofListenAddr       string
 	AllowedSourceEndpoint string
 	AllowedSourceSubnet   []string
 	AwsCredentials        []string
@@ -37,6 +40,7 @@ func NewOptions() Options {
 	kingpin.Flag("verbose", "enable additional logging").Short('v').BoolVar(&opts.Debug)
 	kingpin.Flag("listen-addr", "address:port to listen for requests on").Default(":8099").StringVar(&opts.ListenAddr)
 	kingpin.Flag("metrics-listen-addr", "address:port to listen for Prometheus metrics on, empty to disable").Default("").StringVar(&opts.MetricsListenAddr)
+	kingpin.Flag("pprof-listen-addr", "address:port to listen for pprof on, empty to disable").Default("").StringVar(&opts.PprofListenAddr)
 	kingpin.Flag("allowed-endpoint", "allowed endpoint (Host header) to accept for incoming requests").Required().PlaceHolder("my.host.example.com:8099").StringVar(&opts.AllowedSourceEndpoint)
 	kingpin.Flag("allowed-source-subnet", "allowed source IP addresses with netmask").Default("127.0.0.1/32").StringsVar(&opts.AllowedSourceSubnet)
 	kingpin.Flag("aws-credentials", "set of AWS credentials").PlaceHolder("\"AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY\"").StringsVar(&opts.AwsCredentials)
@@ -123,6 +127,17 @@ func main() {
 	}
 	log.Infof("Accepting incoming requests for this endpoint: %v", handler.AllowedSourceEndpoint)
 	log.Infof("Parsed %d AWS credential sets.", len(handler.AWSCredentials))
+
+	if len(opts.PprofListenAddr) > 0 && len(strings.Split(opts.PprofListenAddr, ":")) == 2 {
+		// avoid leaking pprof to the main application http servers
+		pprofMux := http.DefaultServeMux
+		http.DefaultServeMux = http.NewServeMux()
+		// https://golang.org/pkg/net/http/pprof/
+		log.Infof("Listening for pprof connections on %s", opts.PprofListenAddr)
+		go log.Fatal(
+			http.ListenAndServe(opts.PprofListenAddr, pprofMux),
+		)
+	}
 
 	var wrappedHandler http.Handler = handler
 	if len(opts.MetricsListenAddr) > 0 && len(strings.Split(opts.MetricsListenAddr, ":")) == 2 {
