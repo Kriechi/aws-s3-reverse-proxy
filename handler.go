@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -139,6 +140,7 @@ func (h *Handler) generateFakeIncomingRequest(signer *v4.Signer, req *http.Reque
 	if err != nil {
 		return nil, err
 	}
+	fakeReq.URL.RawPath = req.URL.Path
 
 	// We already validated there there is exactly one Authorization header
 	authorizationHeader := req.Header.Get("authorization")
@@ -177,6 +179,7 @@ func (h *Handler) assembleUpstreamReq(signer *v4.Signer, req *http.Request, regi
 	proxyURL := *req.URL
 	proxyURL.Scheme = h.UpstreamScheme
 	proxyURL.Host = upstreamEndpoint
+	proxyURL.RawPath = req.URL.Path
 	proxyReq, err := http.NewRequest(req.Method, proxyURL.String(), req.Body)
 	if err != nil {
 		return nil, err
