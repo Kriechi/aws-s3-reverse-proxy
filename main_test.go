@@ -14,9 +14,8 @@ func TestParseOptions(t *testing.T) {
 		Region:                "eu-test-1",
 	})
 	assert.Nil(t, err)
-	assert.Equal(t, "eu-test-1", h.Region)
 	assert.Equal(t, "https", h.UpstreamScheme)
-	assert.Equal(t, "s3.eu-test-1.amazonaws.com", h.UpstreamEndpoint)
+	assert.Equal(t, "", h.UpstreamEndpoint)
 	assert.Equal(t, "foobar.endpoint.example.com", h.AllowedSourceEndpoint)
 	assert.Len(t, h.AllowedSourceSubnet, 2)
 	assert.Equal(t, "127.0.0.1/32", h.AllowedSourceSubnet[0].String())

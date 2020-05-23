@@ -16,16 +16,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var awsAuthorizationCredentialRegexp = regexp.MustCompile("Credential=([a-zA-Z0-9]+)")
+var awsAuthorizationCredentialRegexp = regexp.MustCompile("Credential=([a-zA-Z0-9]+)/[0-9]+/([a-z]+-[a-z]+-[0-9]+)/s3/aws4_request")
 var awsAuthorizationSignedHeadersRegexp = regexp.MustCompile("SignedHeaders=([a-zA-Z0-9;-]+)")
 
 // Handler is a special handler that re-signs any AWS S3 request and sends it upstream
 type Handler struct {
 	// Print debug information
 	Debug bool
-
-	// eu-central-1
-	Region string
 
 	// http or https
 	UpstreamScheme string
@@ -50,7 +47,7 @@ type Handler struct {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	proxyReq, err := h.buildUpstreamRequest(h.UpstreamEndpoint, r)
+	proxyReq, err := h.buildUpstreamRequest(r)
 	if err != nil {
 		log.WithError(err).Error("unable to proxy request")
 		w.WriteHeader(http.StatusBadRequest)
@@ -62,14 +59,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.Proxy.ServeHTTP(w, proxyReq)
+	url := url.URL{Scheme: proxyReq.URL.Scheme, Host: proxyReq.Host}
+	proxy := httputil.NewSingleHostReverseProxy(&url)
+	proxy.FlushInterval = 1
+	proxy.ServeHTTP(w, proxyReq)
 }
 
-func (h *Handler) sign(signer *v4.Signer, req *http.Request) error {
-	return h.signWithTime(signer, req, time.Now())
+func (h *Handler) sign(signer *v4.Signer, req *http.Request, region string) error {
+	return h.signWithTime(signer, req, region, time.Now())
 }
 
-func (h *Handler) signWithTime(signer *v4.Signer, req *http.Request, signTime time.Time) error {
+func (h *Handler) signWithTime(signer *v4.Signer, req *http.Request, region string, signTime time.Time) error {
 	body := bytes.NewReader([]byte{})
 	if req.Body != nil {
 		b, err := ioutil.ReadAll(req.Body)
@@ -79,7 +79,7 @@ func (h *Handler) signWithTime(signer *v4.Signer, req *http.Request, signTime ti
 		body = bytes.NewReader(b)
 	}
 
-	_, err := signer.Sign(req, body, "s3", h.Region, signTime)
+	_, err := signer.Sign(req, body, "s3", region, signTime)
 	return err
 }
 
@@ -108,32 +108,33 @@ func (h *Handler) validateIncomingSourceIP(req *http.Request) error {
 	return nil
 }
 
-func (h *Handler) validateIncomingHeaders(req *http.Request) (string, error) {
+func (h *Handler) validateIncomingHeaders(req *http.Request) (string, string, error) {
 	amzDateHeader := req.Header["X-Amz-Date"]
 	if len(amzDateHeader) != 1 {
-		return "", fmt.Errorf("X-Amz-Date header missing or set multiple times: %v", req)
+		return "", "", fmt.Errorf("X-Amz-Date header missing or set multiple times: %v", req)
 	}
 
 	authorizationHeader := req.Header["Authorization"]
 	if len(authorizationHeader) != 1 {
-		return "", fmt.Errorf("Authorization header missing or set multiple times: %v", req)
+		return "", "", fmt.Errorf("Authorization header missing or set multiple times: %v", req)
 	}
 	match := awsAuthorizationCredentialRegexp.FindStringSubmatch(authorizationHeader[0])
-	if len(match) != 2 {
-		return "", fmt.Errorf("invalid Authorization header: Credential not found: %v", req)
+	if len(match) != 3 {
+		return "", "", fmt.Errorf("invalid Authorization header: Credential not found: %v", req)
 	}
 	receivedAccessKeyID := match[1]
+	region := match[2]
 
 	// Validate the received Credential (ACCESS_KEY_ID) is allowed
 	for accessKeyID := range h.AWSCredentials {
 		if subtle.ConstantTimeCompare([]byte(receivedAccessKeyID), []byte(accessKeyID)) == 1 {
-			return accessKeyID, nil
+			return accessKeyID, region, nil
 		}
 	}
-	return "", fmt.Errorf("invalid AccessKeyID in Credential: %v", req)
+	return "", "", fmt.Errorf("invalid AccessKeyID in Credential: %v", req)
 }
 
-func (h *Handler) generateFakeIncomingRequest(signer *v4.Signer, req *http.Request) (*http.Request, error) {
+func (h *Handler) generateFakeIncomingRequest(signer *v4.Signer, req *http.Request, region string) (*http.Request, error) {
 	fakeReq, err := http.NewRequest(req.Method, req.URL.String(), nil)
 	if err != nil {
 		return nil, err
@@ -159,17 +160,23 @@ func (h *Handler) generateFakeIncomingRequest(signer *v4.Signer, req *http.Reque
 	}
 
 	// Sign the fake request with the original timestamp
-	if err := h.signWithTime(signer, fakeReq, signTime); err != nil {
+	if err := h.signWithTime(signer, fakeReq, region, signTime); err != nil {
 		return nil, err
 	}
 
 	return fakeReq, nil
 }
 
-func (h *Handler) assembleUpstreamReq(signer *v4.Signer, req *http.Request) (*http.Request, error) {
+func (h *Handler) assembleUpstreamReq(signer *v4.Signer, req *http.Request, region string) (*http.Request, error) {
+	upstreamEndpoint := h.UpstreamEndpoint
+	if len(upstreamEndpoint) == 0 {
+		upstreamEndpoint = fmt.Sprintf("s3.%s.amazonaws.com", region)
+		log.Infof("Using %s as upstream endpoint", upstreamEndpoint)
+	}
+
 	proxyURL := *req.URL
 	proxyURL.Scheme = h.UpstreamScheme
-	proxyURL.Host = h.UpstreamEndpoint
+	proxyURL.Host = upstreamEndpoint
 	proxyReq, err := http.NewRequest(req.Method, proxyURL.String(), req.Body)
 	if err != nil {
 		return nil, err
@@ -182,7 +189,7 @@ func (h *Handler) assembleUpstreamReq(signer *v4.Signer, req *http.Request) (*ht
 	}
 
 	// Sign the upstream request
-	if err := h.sign(signer, proxyReq); err != nil {
+	if err := h.sign(signer, proxyReq, region); err != nil {
 		return nil, err
 	}
 
@@ -193,7 +200,7 @@ func (h *Handler) assembleUpstreamReq(signer *v4.Signer, req *http.Request) (*ht
 }
 
 // Do validates the incoming request and create a new request for an upstream server
-func (h *Handler) buildUpstreamRequest(customEndpoint string, req *http.Request) (*http.Request, error) {
+func (h *Handler) buildUpstreamRequest(req *http.Request) (*http.Request, error) {
 	// Ensure the request was sent from an allowed IP address
 	err := h.validateIncomingSourceIP(req)
 	if err != nil {
@@ -201,7 +208,7 @@ func (h *Handler) buildUpstreamRequest(customEndpoint string, req *http.Request)
 	}
 
 	// Validate incoming headers and extract AWS_ACCESS_KEY_ID
-	accessKeyID, err := h.validateIncomingHeaders(req)
+	accessKeyID, region, err := h.validateIncomingHeaders(req)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +217,7 @@ func (h *Handler) buildUpstreamRequest(customEndpoint string, req *http.Request)
 	signer := h.Signers[accessKeyID]
 
 	// Assemble a signed fake request to verify the incoming requests signature
-	fakeReq, err := h.generateFakeIncomingRequest(signer, req)
+	fakeReq, err := h.generateFakeIncomingRequest(signer, req, region)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +240,7 @@ func (h *Handler) buildUpstreamRequest(customEndpoint string, req *http.Request)
 	}
 
 	// Assemble a new upstream request
-	proxyReq, err := h.assembleUpstreamReq(signer, req)
+	proxyReq, err := h.assembleUpstreamReq(signer, req, region)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +250,7 @@ func (h *Handler) buildUpstreamRequest(customEndpoint string, req *http.Request)
 
 	if log.GetLevel() == log.DebugLevel {
 		proxyReqDump, _ := httputil.DumpRequest(proxyReq, false)
-		log.Debugf("proxying request: %v", string(proxyReqDump))
+		log.Debugf("Proxying request: %v", string(proxyReqDump))
 	}
 
 	return proxyReq, nil

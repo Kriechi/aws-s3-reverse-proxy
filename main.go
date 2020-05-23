@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"strings"
 
 	_ "net/http/pprof"
@@ -91,25 +89,14 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 		}))
 	}
 
-	upstreamEndpoint := opts.UpstreamEndpoint
-	if len(upstreamEndpoint) == 0 {
-		upstreamEndpoint = fmt.Sprintf("s3.%s.amazonaws.com", opts.Region)
-	}
-
-	url := url.URL{Scheme: scheme, Host: upstreamEndpoint}
-	proxy := httputil.NewSingleHostReverseProxy(&url)
-	proxy.FlushInterval = 1
-
 	handler := &Handler{
 		Debug:                 opts.Debug,
-		Region:                opts.Region,
 		UpstreamScheme:        scheme,
-		UpstreamEndpoint:      upstreamEndpoint,
+		UpstreamEndpoint:      opts.UpstreamEndpoint,
 		AllowedSourceEndpoint: opts.AllowedSourceEndpoint,
 		AllowedSourceSubnet:   parsedAllowedSourceSubnet,
 		AWSCredentials:        parsedAwsCredentials,
 		Signers:               signers,
-		Proxy:                 proxy,
 	}
 	return handler, nil
 }
@@ -121,7 +108,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Infof("Sending requests to upstream AWS S3 %s Region to endpoint %v://%v.", handler.Region, handler.UpstreamScheme, handler.UpstreamEndpoint)
+	if len(handler.UpstreamEndpoint) > 0 {
+		log.Infof("Sending requests to upstream AWS S3 to endpoint %s://%s.", handler.UpstreamScheme, handler.UpstreamEndpoint)
+	} else {
+		log.Infof("Auto-detecting S3 endpoint based on region: %s://s3.{region}.amazonaws.com", handler.UpstreamScheme)
+	}
+
 	for _, subnet := range handler.AllowedSourceSubnet {
 		log.Infof("Allowing connections from %v.", subnet)
 	}
