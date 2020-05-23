@@ -8,24 +8,16 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.14
+
       - name: Check out source code
-        uses: actions/checkout@v1
-        with:
-          path: src/github.com/${{ github.repository }}
-      - name: Install Go
-        uses: actions/setup-go@v1
-        with:
-          go-version: 1.13
-      - name: Set environment variables
-        shell: bash
-        run: |
-          echo '::set-env name=GOPATH::${{ runner.workspace }}'
-          echo '::add-path::${{ runner.workspace }}/bin'
-      - name: Print env
-        run: |
-          go env
-          env
+        uses: actions/checkout@v2
+
       - name: Build
-        run: go build -v -mod vendor
+        run: go build -v
+
       - name: Test
-        run: go test -v -mod vendor
+        run: go test -v
