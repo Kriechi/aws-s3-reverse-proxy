@@ -59,15 +59,15 @@ The available options and help information can be displayed with:
 docker run --rm aws-s3-reverse-proxy --help
 ```
 
-# Build
+## Build
 All build dependencies and steps are contained in the `Dockerfile`:
 ```
 docker build -t aws-s3-reverse-proxy .
 ```
 
-# Run
+## Run
 
-## Server Examples
+### Server Examples
 ```
 $ docker run --rm -ti \
   -p 8099 \
@@ -94,25 +94,25 @@ Or just run the binary the old-fashioned way:
 ./aws-s3-reverse-proxy --help
 ```
 
-## Client Examples
+### Client Examples
 
 Client with the [official awscli](https://aws.amazon.com/cli/):
 ```
 $ aws s3 --endpoint-url http://my.host.example.com:8099 ls s3://my-bucket/
 ```
 
-# Contributing
+## Contributing
 
 `aws-s3-reverse-proxy` welcomes contributions from anyone! Unlike many other
 projects we are happy to accept cosmetic contributions and small contributions,
 in addition to large feature requests and changes.
 
-# License
+## License
 
 `aws-s3-reverse-proxy` is made available under the MIT License. For more
 details, see the `LICENSE` file in the repository.
 
-# Authors
+## Authors
 
-``aws-s3-reverse-proxy`` was created by Thomas Kriechbaumer, and is maintained
+`aws-s3-reverse-proxy` was created by Thomas Kriechbaumer, and is maintained
 by the community.
