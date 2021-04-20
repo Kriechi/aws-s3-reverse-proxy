@@ -126,9 +126,11 @@ func main() {
 		http.DefaultServeMux = http.NewServeMux()
 		// https://golang.org/pkg/net/http/pprof/
 		log.Infof("Listening for pprof connections on %s", opts.PprofListenAddr)
-		go log.Fatal(
-			http.ListenAndServe(opts.PprofListenAddr, pprofMux),
-		)
+		go func() {
+			log.Fatal(
+				http.ListenAndServe(opts.PprofListenAddr, pprofMux),
+			)
+		}()
 	}
 
 	var wrappedHandler http.Handler = handler
@@ -137,10 +139,13 @@ func main() {
 		metricsHandler.Handle("/metrics", promhttp.Handler())
 
 		log.Infof("Listening for secure Prometheus metrics on %s", opts.MetricsListenAddr)
-		go log.Fatal(
-			http.ListenAndServe(opts.MetricsListenAddr, metricsHandler),
-		)
 		wrappedHandler = wrapPrometheusMetrics(handler)
+
+		go func() {
+			log.Fatal(
+				http.ListenAndServe(opts.MetricsListenAddr, metricsHandler),
+			)
+		}()
 	}
 
 	if len(opts.CertFile) > 0 || len(opts.KeyFile) > 0 {
