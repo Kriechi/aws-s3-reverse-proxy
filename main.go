@@ -35,18 +35,18 @@ type Options struct {
 // NewOptions defines and parses the raw command line arguments
 func NewOptions() Options {
 	var opts Options
-	kingpin.Flag("verbose", "enable additional logging").Short('v').BoolVar(&opts.Debug)
-	kingpin.Flag("listen-addr", "address:port to listen for requests on").Default(":8099").StringVar(&opts.ListenAddr)
-	kingpin.Flag("metrics-listen-addr", "address:port to listen for Prometheus metrics on, empty to disable").Default("").StringVar(&opts.MetricsListenAddr)
-	kingpin.Flag("pprof-listen-addr", "address:port to listen for pprof on, empty to disable").Default("").StringVar(&opts.PprofListenAddr)
-	kingpin.Flag("allowed-endpoint", "allowed endpoint (Host header) to accept for incoming requests").Required().PlaceHolder("my.host.example.com:8099").StringVar(&opts.AllowedSourceEndpoint)
-	kingpin.Flag("allowed-source-subnet", "allowed source IP addresses with netmask").Default("127.0.0.1/32").StringsVar(&opts.AllowedSourceSubnet)
-	kingpin.Flag("aws-credentials", "set of AWS credentials").PlaceHolder("\"AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY\"").StringsVar(&opts.AwsCredentials)
-	kingpin.Flag("aws-region", "send requests to this AWS S3 region").Default("eu-central-1").StringVar(&opts.Region)
-	kingpin.Flag("upstream-insecure", "use insecure HTTP for upstream connections").BoolVar(&opts.UpstreamInsecure)
-	kingpin.Flag("upstream-endpoint", "use this S3 endpoint for upstream connections, instead of public AWS S3").StringVar(&opts.UpstreamEndpoint)
-	kingpin.Flag("cert-file", "path to the certificate file").Default("").StringVar(&opts.CertFile)
-	kingpin.Flag("key-file", "path to the private key file").Default("").StringVar(&opts.KeyFile)
+	kingpin.Flag("verbose", "enable additional logging (env - VERBOSE)").Envar("VERBOSE").Short('v').BoolVar(&opts.Debug)
+	kingpin.Flag("listen-addr", "address:port to listen for requests on").Default(":8099").Envar("LISTEN_ADDR").StringVar(&opts.ListenAddr)
+	kingpin.Flag("metrics-listen-addr", "address:port to listen for Prometheus metrics on, empty to disable").Default("").Envar("METRICS_LISTEN_ADDR").StringVar(&opts.MetricsListenAddr)
+	kingpin.Flag("pprof-listen-addr", "address:port to listen for pprof on, empty to disable").Default("").Envar("PPROF_LISTEN_ADDR").StringVar(&opts.PprofListenAddr)
+	kingpin.Flag("allowed-endpoint", "allowed endpoint (Host header) to accept for incoming requests").Envar("ALLOWED_ENDPOINT").Required().PlaceHolder("my.host.example.com:8099").StringVar(&opts.AllowedSourceEndpoint)
+	kingpin.Flag("allowed-source-subnet", "allowed source IP addresses with netmask").Default("127.0.0.1/32").Envar("ALLOWED_SOURCE_SUBNET").StringsVar(&opts.AllowedSourceSubnet)
+	kingpin.Flag("aws-credentials", "set of AWS credentials").PlaceHolder("\"AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY\"").Envar("AWS_CREDENTIALS").StringsVar(&opts.AwsCredentials)
+	kingpin.Flag("aws-region", "send requests to this AWS S3 region").Envar("AWS_REGION").Default("eu-central-1").StringVar(&opts.Region)
+	kingpin.Flag("upstream-insecure", "use insecure HTTP for upstream connections").Envar("UPSTREAM_INSECURE").BoolVar(&opts.UpstreamInsecure)
+	kingpin.Flag("upstream-endpoint", "use this S3 endpoint for upstream connections, instead of public AWS S3").Envar("UPSTREAM_ENDPOINT").StringVar(&opts.UpstreamEndpoint)
+	kingpin.Flag("cert-file", "path to the certificate file").Envar("CERT_FILE").Default("").StringVar(&opts.CertFile)
+	kingpin.Flag("key-file", "path to the private key file").Envar("KEY_FILE").Default("").StringVar(&opts.KeyFile)
 	kingpin.Parse()
 	return opts
 }
