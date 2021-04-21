@@ -4,7 +4,6 @@ RUN apk add -U --no-cache ca-certificates git bash
 
 WORKDIR /app
 COPY . .
-# WORKDIR /go/src/github.com/kriechi/aws-s3-reverse-proxy
 
 RUN go build -o aws-s3-reverse-proxy && \
     mv ./aws-s3-reverse-proxy /go/bin
