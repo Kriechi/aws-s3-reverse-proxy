@@ -77,6 +77,16 @@ $ docker run --rm -ti \
   --aws-credentials=AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY
 ```
 
+You can also use env variables
+```
+$ docker run --rm -ti \
+  -p 8099 \
+  -e ALLOWED_SOURCE_SUBNET=192.168.1.0/24 \
+  -e ALLOWED_ENDPOINT=my.host.example.com:8099 \
+  -e AWS_CREDENTIALS=AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY
+  aws-s3-reverse-proxy
+```
+
 Or you can use a config file:
 ```
 # config.cfg file for aws-3-reverse-proxy
