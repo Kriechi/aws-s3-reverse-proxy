@@ -21,3 +21,9 @@ jobs:
 
       - name: Test
         run: go test -v
+
+      - name: Build Docker image
+        run: docker build -t aws-s3-reverse-proxy .
+
+      - name: Run Docker image
+        run: docker run --rm aws-s3-reverse-proxy --help

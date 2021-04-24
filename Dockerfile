@@ -8,7 +8,7 @@ COPY . .
 RUN go build -o aws-s3-reverse-proxy && \
     mv ./aws-s3-reverse-proxy /go/bin
 
-FROM alpine:3.10
+FROM alpine:3.13
 
 WORKDIR /proxy
 
