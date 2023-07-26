@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aws-s3-reverse-proxy.fullname" . }}
+  labels:
+    {{- include "aws-s3-reverse-proxy.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    - port: {{ .Values.healthz.port }}
+      targetPort: healthz
+      protocol: TCP
+      name: healthz
+  selector:
+    {{- include "aws-s3-reverse-proxy.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "aws-s3-reverse-proxy.fullname" . }}-headless
+  labels:
+    {{- include "aws-s3-reverse-proxy.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.metrics.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    - port: {{ .Values.healthz.port }}
+      targetPort: healthz
+      protocol: TCP
+      name: healthz
+  clusterIP: None
+  selector:
+    {{- include "aws-s3-reverse-proxy.selectorLabels" . | nindent 4 }}

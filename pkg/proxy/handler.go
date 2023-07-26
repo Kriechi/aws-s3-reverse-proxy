@@ -1,24 +1,35 @@
-package main
+package proxy
 
 import (
 	"bytes"
 	"crypto/subtle"
+	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/Kriechi/aws-s3-reverse-proxy/pkg/cache"
+	"github.com/Kriechi/aws-s3-reverse-proxy/pkg/transport"
+	"github.com/aws/aws-sdk-go/aws/credentials"
 	v4 "github.com/aws/aws-sdk-go/aws/signer/v4"
 	log "github.com/sirupsen/logrus"
+	"k8s.io/utils/strings/slices"
 )
 
-var awsAuthorizationCredentialRegexp = regexp.MustCompile("Credential=([a-zA-Z0-9]+)/[0-9]+/([a-z]+-?[a-z]+-?[0-9]+)/s3/aws4_request")
-var awsAuthorizationSignedHeadersRegexp = regexp.MustCompile("SignedHeaders=([a-zA-Z0-9;-]+)")
+var (
+	ErrInvalidEndpoint                  = errors.New("invalid endpoint specified")
+	ErrInvalidSubnet                    = errors.New("invalid allowed source subnet")
+	ErrInvalidCreds                     = errors.New("invalid AWS credentials")
+	awsAuthorizationCredentialRegexp    = regexp.MustCompile("Credential=([a-zA-Z0-9]+)/[0-9]+/([a-z]+-?[a-z]+-?[0-9]+)/s3/aws4_request")
+	awsAuthorizationSignedHeadersRegexp = regexp.MustCompile("SignedHeaders=([a-zA-Z0-9;-]+)")
+)
 
 // Handler is a special handler that re-signs any AWS S3 request and sends it upstream
 type Handler struct {
@@ -32,19 +43,116 @@ type Handler struct {
 	UpstreamEndpoint string
 
 	// Allowed endpoint, i.e., Host header to accept incoming requests from
-	AllowedSourceEndpoint string
+	AllowedSourceEndpoints []string
 
 	// Allowed source IPs and subnets for incoming requests
 	AllowedSourceSubnet []*net.IPNet
-
-	// AWS Credentials, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
-	AWSCredentials map[string]string
 
 	// AWS Signature v4
 	Signers map[string]*v4.Signer
 
 	// Reverse Proxy
 	Proxy *httputil.ReverseProxy
+}
+
+// NewAwsS3ReverseProxy parses all options and creates a new HTTP Handler
+func NewAwsS3ReverseProxy(opts Options) (http.Handler, error) {
+	log.SetLevel(log.InfoLevel)
+	if opts.Debug {
+		log.SetLevel(log.DebugLevel)
+	}
+
+	h, err := newHandler(&opts)
+	if err != nil {
+		return nil, err
+	}
+
+	h.Proxy = httputil.NewSingleHostReverseProxy(&url.URL{Scheme: h.UpstreamScheme, Host: h.UpstreamEndpoint})
+
+	if opts.CachePath != "" {
+		tripper, err := transport.NewTriepper(cache.Options{
+			Path:    opts.CachePath,
+			MaxSize: opts.MaxCacheItemSize,
+			TTL:     opts.CacheTTL,
+		})
+		if err != nil {
+			return nil, err
+		}
+		h.Proxy.Transport = tripper
+	}
+
+	return h, nil
+}
+
+func newHandler(opts *Options) (*Handler, error) {
+	scheme := "https"
+	if opts.UpstreamInsecure {
+		scheme = "http"
+	}
+
+	var parsedAllowedSourceSubnet []*net.IPNet
+	for _, sourceSubnet := range opts.AllowedSourceSubnet {
+		_, subnet, err := net.ParseCIDR(sourceSubnet)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidSubnet, sourceSubnet)
+		}
+		parsedAllowedSourceSubnet = append(parsedAllowedSourceSubnet, subnet)
+	}
+
+	signers := make(map[string]*v4.Signer)
+	for _, cred := range opts.AwsCredentials {
+		d := strings.SplitN(cred, ",", 2)
+		if len(d) != 2 || len(d[0]) < 16 || len(d[1]) < 1 {
+			return nil, fmt.Errorf("%w; Did you separate them with a ',' or are they too short?", ErrInvalidCreds)
+		}
+		signers[d[0]] = v4.NewSigner(credentials.NewStaticCredentialsFromCreds(credentials.Value{
+			AccessKeyID:     d[0],
+			SecretAccessKey: d[1],
+		}))
+	}
+
+	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
+		signers[os.Getenv("AWS_ACCESS_KEY_ID")] = v4.NewSigner(credentials.NewStaticCredentialsFromCreds(credentials.Value{
+			AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+			SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+			SessionToken:    os.Getenv("AWS_SESSION_TOKEN"),
+		}))
+	}
+
+	h := &Handler{
+		Debug:               opts.Debug,
+		UpstreamScheme:      scheme,
+		UpstreamEndpoint:    opts.UpstreamEndpoint,
+		AllowedSourceSubnet: parsedAllowedSourceSubnet,
+		Signers:             signers,
+	}
+
+	if len(opts.UpstreamEndpoint) > 0 {
+		log.Infof("Sending requests to upstream AWS S3 to endpoint %s://%s.", scheme, h.UpstreamEndpoint)
+	} else {
+		log.Infof("Auto-detecting S3 endpoint based on region: %s://s3.{region}.amazonaws.com", scheme)
+	}
+
+	for _, subnet := range opts.AllowedSourceSubnet {
+		log.Infof("Allowing connections from %v.", subnet)
+	}
+	for _, endpoint := range opts.AllowedSourceEndpoints {
+		var host string
+		if u, err := url.Parse(endpoint); err == nil {
+			host = u.Host
+			if host == "" && u.Path != "" {
+				host = u.Path
+			}
+		}
+		if host == "" {
+			host = endpoint
+		}
+		h.AllowedSourceEndpoints = append(h.AllowedSourceEndpoints, host)
+		log.Infof("Accepting incoming requests for this endpoint: %v", host)
+	}
+	log.Infof("Parsed %d AWS credential sets.", len(h.Signers))
+
+	return h, nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -55,15 +163,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// for security reasons, only write detailed error information in debug mode
 		if h.Debug {
-			w.Write([]byte(err.Error()))
+			_, _ = w.Write([]byte(err.Error()))
 		}
 		return
 	}
 
-	url := url.URL{Scheme: proxyReq.URL.Scheme, Host: proxyReq.Host}
-	proxy := httputil.NewSingleHostReverseProxy(&url)
-	proxy.FlushInterval = 1
-	proxy.ServeHTTP(w, proxyReq)
+	h.Proxy.ServeHTTP(w, proxyReq)
 }
 
 func (h *Handler) sign(signer *v4.Signer, req *http.Request, region string) error {
@@ -73,7 +178,7 @@ func (h *Handler) sign(signer *v4.Signer, req *http.Request, region string) erro
 func (h *Handler) signWithTime(signer *v4.Signer, req *http.Request, region string, signTime time.Time) error {
 	body := bytes.NewReader([]byte{})
 	if req.Body != nil {
-		b, err := ioutil.ReadAll(req.Body)
+		b, err := io.ReadAll(req.Body)
 		if err != nil {
 			return err
 		}
@@ -94,8 +199,20 @@ func copyHeaderWithoutOverwrite(dst http.Header, src http.Header) {
 	}
 }
 
+func (h *Handler) validateSourceEndpoint(req *http.Request) error {
+	host := req.URL.Host
+	if host == "" {
+		host = req.Host
+	}
+	// host = strings.Split(host, ":")[0]
+	if !slices.Contains(h.AllowedSourceEndpoints, host) {
+		return fmt.Errorf("%w; %s is not allowed", ErrInvalidEndpoint, host)
+	}
+	return nil
+}
+
 func (h *Handler) validateIncomingSourceIP(req *http.Request) error {
-	allowed := false
+	var allowed bool
 	for _, subnet := range h.AllowedSourceSubnet {
 		ip, _, _ := net.SplitHostPort(req.RemoteAddr)
 		userIP := net.ParseIP(ip)
@@ -110,14 +227,13 @@ func (h *Handler) validateIncomingSourceIP(req *http.Request) error {
 }
 
 func (h *Handler) validateIncomingHeaders(req *http.Request) (string, string, error) {
-	amzDateHeader := req.Header["X-Amz-Date"]
-	if len(amzDateHeader) != 1 {
+	if len(req.Header["X-Amz-Date"]) != 1 {
 		return "", "", fmt.Errorf("X-Amz-Date header missing or set multiple times: %v", req)
 	}
 
 	authorizationHeader := req.Header["Authorization"]
 	if len(authorizationHeader) != 1 {
-		return "", "", fmt.Errorf("Authorization header missing or set multiple times: %v", req)
+		return "", "", fmt.Errorf("authorization header missing or set multiple times: %v", req)
 	}
 	match := awsAuthorizationCredentialRegexp.FindStringSubmatch(authorizationHeader[0])
 	if len(match) != 3 {
@@ -127,7 +243,7 @@ func (h *Handler) validateIncomingHeaders(req *http.Request) (string, string, er
 	region := match[2]
 
 	// Validate the received Credential (ACCESS_KEY_ID) is allowed
-	for accessKeyID := range h.AWSCredentials {
+	for accessKeyID := range h.Signers {
 		if subtle.ConstantTimeCompare([]byte(receivedAccessKeyID), []byte(accessKeyID)) == 1 {
 			return accessKeyID, region, nil
 		}
@@ -153,7 +269,7 @@ func (h *Handler) generateFakeIncomingRequest(signer *v4.Signer, req *http.Reque
 
 	// Delete a potentially double-added header
 	fakeReq.Header.Del("host")
-	fakeReq.Host = h.AllowedSourceEndpoint
+	fakeReq.Host = req.Host
 
 	// The X-Amz-Date header contains a timestamp, such as: 20190929T182805Z
 	signTime, err := time.Parse("20060102T150405Z", req.Header["X-Amz-Date"][0])
@@ -202,11 +318,31 @@ func (h *Handler) assembleUpstreamReq(signer *v4.Signer, req *http.Request, regi
 	return proxyReq, nil
 }
 
+func (h *Handler) validateSignature(req, proxyReq *http.Request) error {
+	// Verify that the fake request and the incoming request have the same signature
+	// This ensures it was sent and signed by a client with correct AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+	cmpResult := subtle.ConstantTimeCompare([]byte(proxyReq.Header["Authorization"][0]), []byte(req.Header["Authorization"][0]))
+	if cmpResult == 0 {
+		v, _ := httputil.DumpRequest(proxyReq, false)
+		log.Debugf("Proxy request: %v", string(v))
+
+		v, _ = httputil.DumpRequest(req, false)
+		log.Debugf("Incoming request: %v", string(v))
+		return fmt.Errorf("invalid signature in Authorization header")
+	}
+
+	return nil
+}
+
 // Do validates the incoming request and create a new request for an upstream server
 func (h *Handler) buildUpstreamRequest(req *http.Request) (*http.Request, error) {
 	// Ensure the request was sent from an allowed IP address
-	err := h.validateIncomingSourceIP(req)
-	if err != nil {
+	if err := h.validateIncomingSourceIP(req); err != nil {
+		return nil, err
+	}
+
+	// Ensure the request was sent from an allowed endpoint
+	if err := h.validateSourceEndpoint(req); err != nil {
 		return nil, err
 	}
 
@@ -225,16 +361,8 @@ func (h *Handler) buildUpstreamRequest(req *http.Request) (*http.Request, error)
 		return nil, err
 	}
 
-	// Verify that the fake request and the incoming request have the same signature
-	// This ensures it was sent and signed by a client with correct AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
-	cmpResult := subtle.ConstantTimeCompare([]byte(fakeReq.Header["Authorization"][0]), []byte(req.Header["Authorization"][0]))
-	if cmpResult == 0 {
-		v, _ := httputil.DumpRequest(fakeReq, false)
-		log.Debugf("Fake request: %v", string(v))
-
-		v, _ = httputil.DumpRequest(req, false)
-		log.Debugf("Incoming request: %v", string(v))
-		return nil, fmt.Errorf("invalid signature in Authorization header")
+	if err := h.validateSignature(req, fakeReq); err != nil {
+		return nil, err
 	}
 
 	if log.GetLevel() == log.DebugLevel {
