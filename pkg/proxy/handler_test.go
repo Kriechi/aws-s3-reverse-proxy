@@ -1,9 +1,8 @@
-package main
+package proxy
 
 import (
 	"bytes"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,26 +19,34 @@ import (
 // 	log.SetOutput(ioutil.Discard)
 // }
 
-func newTestProxy(t *testing.T) *Handler {
+type optsFunc func(*Options)
+
+func newTestProxy(t *testing.T, of ...optsFunc) http.Handler {
 	thf := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "Hello, client")
 	})
-	return newTestProxyWithHandler(t, &thf)
+	return newTestProxyWithHandler(t, &thf, of...)
 }
 
-func newTestProxyWithHandler(t *testing.T, thf *http.HandlerFunc) *Handler {
+func newTestProxyWithHandler(t *testing.T, thf *http.HandlerFunc, of ...optsFunc) http.Handler {
 	ts := httptest.NewServer(thf)
 	tsURL, _ := url.Parse(ts.URL)
 
-	h, err := NewAwsS3ReverseProxy(Options{
-		Debug:                 true,
-		AllowedSourceEndpoint: "foobar.example.com",
-		AllowedSourceSubnet:   []string{"0.0.0.0/0"},
-		AwsCredentials:        []string{"fooooooooooooooo,bar"},
-		Region:                "eu-test-1",
-		UpstreamInsecure:      true,
-		UpstreamEndpoint:      tsURL.Host,
-	})
+	o := Options{
+		Debug:                  true,
+		AllowedSourceEndpoints: []string{"foobar.example.com"},
+		AllowedSourceSubnet:    []string{"0.0.0.0/0"},
+		AwsCredentials:         []string{"fooooooooooooooo,bar"},
+		Region:                 "eu-test-1",
+		UpstreamInsecure:       true,
+		UpstreamEndpoint:       tsURL.Host,
+	}
+
+	for _, f := range of {
+		f(&o)
+	}
+
+	h, err := NewAwsS3ReverseProxy(o)
 	assert.Nil(t, err)
 	return h
 }
@@ -58,7 +65,7 @@ func signRequest(r *http.Request) {
 		AccessKeyID:     "fooooooooooooooo",
 		SecretAccessKey: "bar",
 	}))
-	signer.Sign(r, body, "s3", "eu-test-1", signTime)
+	_, _ = signer.Sign(r, body, "s3", "eu-test-1", signTime)
 }
 
 func verifySignature(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +83,7 @@ func verifySignature(w http.ResponseWriter, r *http.Request) {
 		AccessKeyID:     "fooooooooooooooo",
 		SecretAccessKey: "bar",
 	}))
-	signer.Sign(r, body, "s3", "eu-test-1", signTime)
+	_, _ = signer.Sign(r, body, "s3", "eu-test-1", signTime)
 	expectedAuthorization := r.Header["Authorization"][0]
 
 	// verify signature
@@ -106,7 +113,7 @@ func TestHandlerMissingAuthorization(t *testing.T) {
 	resp := httptest.NewRecorder()
 	h.ServeHTTP(resp, req)
 	assert.Equal(t, 400, resp.Code)
-	assert.Contains(t, resp.Body.String(), "Authorization header missing or set multiple times")
+	assert.Contains(t, resp.Body.String(), "authorization header missing or set multiple times")
 }
 
 func TestHandlerMissingCredential(t *testing.T) {
@@ -157,13 +164,13 @@ func TestHandlerInvalidCredential(t *testing.T) {
 }
 
 func TestHandlerInvalidSourceSubnet(t *testing.T) {
-	h := newTestProxy(t)
-	_, newNet, _ := net.ParseCIDR("172.27.42.0/24")
-	h.AllowedSourceSubnet = []*net.IPNet{newNet}
+	h := newTestProxy(t, func(o *Options) {
+		o.AllowedSourceSubnet = []string{"172.27.42.0/24"}
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "http://foobar.example.com", nil)
 	req.Header.Set("X-Amz-Date", "20060102T150405Z")
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=XXXooooooooooooo/20060102/eu-test-1/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=a0d5e0c0924c1f9298c5f2a3925e202657bf1e239a1d6856235cbe0702855334") // signature computed manually for this test case
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=fooooooooooooooo/20060102/eu-test-1/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=a0d5e0c0924c1f9298c5f2a3925e202657bf1e239a1d6856235cbe0702855334") // signature computed manually for this test case
 	resp := httptest.NewRecorder()
 	h.ServeHTTP(resp, req)
 	assert.Equal(t, 400, resp.Code)

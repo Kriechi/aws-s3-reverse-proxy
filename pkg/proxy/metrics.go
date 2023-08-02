@@ -1,4 +1,4 @@
-package main
+package proxy
 
 import (
 	"net/http"
@@ -7,7 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func wrapPrometheusMetrics(handler http.Handler) http.Handler {
+func WrapPrometheusMetrics(handler http.Handler) http.HandlerFunc {
 	counter := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "s3proxy_api_requests_total",

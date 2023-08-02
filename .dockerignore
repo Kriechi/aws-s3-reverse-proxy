@@ -1,0 +1,50 @@
+# The .dockerignore file excludes files from the container build process.
+#
+# https://docs.docker.com/engine/reference/builder/#dockerignore-file
+
+# Exclude locally vendored dependencies.
+vendor/
+
+# Binaries for programs and plugins
+charts/
+bin/
+out/
+dist/
+docs/
+usage/
+imgs/
+
+# local editor configs
+.project
+.idea/
+.idea
+*/*.iml
+.vscode/
+
+# Irelevant files
+**/*.md
+*.test
+*.out
+docs.go
+
+k8s_schemas/*
+openapi2jsonschema.py
+openapi2jsonschema.py.original
+requirements.txt
+aws-s3-reverse-proxy
+
+# ignore .git and .cache folders
+.git
+.github
+.cache
+
+# Exclude "build-time" ignore files.
+.dockerignore
+.gcloudignore
+.yamllint
+.goreleaser.yml
+
+*.cover
+
+# Exclude git history and configuration.
+.gitignore

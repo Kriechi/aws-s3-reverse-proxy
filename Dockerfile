@@ -1,14 +1,20 @@
-FROM golang:alpine as build
+FROM golang:1.20-alpine as build
 
 RUN apk add -U --no-cache ca-certificates git bash
 
+ENV GOPATH=""
+
 WORKDIR /app
-COPY . .
 
-RUN go build -o aws-s3-reverse-proxy && \
-    mv ./aws-s3-reverse-proxy /go/bin
+COPY go.mod go.sum ./
+RUN go mod download
 
-FROM alpine:3.13
+COPY pkg ./pkg
+COPY main.go ./
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o /go/bin/aws-s3-reverse-proxy -trimpath -ldflags="-s -w -extldflags '-static'"
+
+FROM alpine:3.18
 
 WORKDIR /proxy
 

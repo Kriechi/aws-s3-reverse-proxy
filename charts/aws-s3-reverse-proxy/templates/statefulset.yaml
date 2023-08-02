@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "aws-s3-reverse-proxy.fullname" . }}
+  labels:
+    {{- include "aws-s3-reverse-proxy.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  serviceName: {{ include "aws-s3-reverse-proxy.fullname" . }}--headless
+  selector:
+    matchLabels:
+      {{- include "aws-s3-reverse-proxy.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "aws-s3-reverse-proxy.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- tpl (toYaml .) $ | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "aws-s3-reverse-proxy.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: {{ .Chart.Name }}
+          env: {{ toYaml .Values.extraEnvs | nindent 12 }}
+          envFrom: {{ toYaml .Values.envFrom | nindent 12 }}
+          args:
+            {{- if .Values.certManager.enabled }}
+            - --cert-file=/proxy/tls/tls.crt
+            - --key-file=/proxy/tls/tls.key
+            {{- end }}
+            - --listen-addr={{ printf ":%d" (.Values.service.containerPort | int) }}
+            - --metrics-listen-addr={{ printf "%s:%d" .Values.metrics.addr ( .Values.metrics.port | int ) }}
+            - --healthz-listen-addr={{ printf "%s:%d" .Values.healthz.addr ( .Values.healthz.port | int ) }}
+            - --upstream-endpoint={{ .Values.s3Endpoint }}
+            - --allowed-source-subnet=0.0.0.0/0
+            - --allowed-endpoint=127.0.0.1
+            - --allowed-endpoint=localhost
+            - --allowed-endpoint={{ include "aws-s3-reverse-proxy.fullname" . }}
+            - --allowed-endpoint={{ include "aws-s3-reverse-proxy.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+            - --allowed-endpoint={{ include "aws-s3-reverse-proxy.fullname" . }}-headless
+            {{- if .Values.ingress.enabled -}}
+            {{- if .Values.ingress.tls }}
+            {{- range .Values.ingress.tls }}
+            {{- range .hosts }}
+            - --allowed-endpoint={{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- range .Values.ingress.hosts }}
+            - --allowed-endpoint={{ .host | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.storage.enabled }}
+            - --cache-path=/proxy/cache
+            - --cache-ttl={{ .Values.storage.ttl }}
+            {{- end }}
+            {{- with .Values.extraArgs }}
+            {{ toYaml . }}
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.containerPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            - name: healthz
+              containerPort: {{ .Values.healthz.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if or .Values.storage.enabled .Values.certManager.enabled }}
+          volumeMounts:
+          {{- if .Values.certManager.enabled }}
+            - name: certificate
+              mountPath: /proxy/tls
+          {{- end }}
+          {{- if .Values.storage.enabled }}
+            - name: cache
+              mountPath: /proxy/cache/
+          {{- end }}
+          {{- end }}
+
+      {{- if .Values.certManager.enabled }}
+      volumes:
+        - name: certificate
+          secret:
+            secretName: {{ include "aws-s3-reverse-proxy.fullname" . }}-certificate
+      {{- end }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- tpl (toYaml .) $ | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- tpl (toYaml .) $ | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- tpl (toYaml .) $ | nindent 8 }}
+      {{- end }}
+  {{- if .Values.storage.enabled }}
+  volumeClaimTemplates:
+  - metadata:
+      name: cache
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: {{ .Values.storage.class }}
+      resources:
+        requests:
+          storage: {{ .Values.storage.size }}
+  {{- end }}

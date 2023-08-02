@@ -1,0 +1,24 @@
+{{- if .Values.certManager.enabled }}
+{{- if not .Values.certManager.issuer }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "aws-s3-reverse-proxy.fullname" . }}-selfsigned
+spec:
+  selfSigned: {}
+{{- end }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "aws-s3-reverse-proxy.fullname" . }}
+  labels:
+    {{- include "aws-s3-reverse-proxy.labels" . | nindent 4 }}
+    app: aws-s3-reverse-proxy
+spec:
+  secretName: {{ include "aws-s3-reverse-proxy.fullname" . }}-certificate
+  dnsNames: {{ tpl (toYaml .Values.certManager.dnsNames) $ | nindent 4 }}
+  issuerRef:
+    name: {{ .Values.certManager.issuer | default ( printf "%s-selfsigned" (include "aws-s3-reverse-proxy.fullname" .)) }}
+    kind: {{ .Values.certManager.issuerKind | default "Issuer" }}
+{{- end }}

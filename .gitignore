@@ -1,4 +1,6 @@
 aws-s3-reverse-proxy
+!aws-s3-reverse-proxy/
 aws-s3-reverse-proxy.tar
 config
 test.txt
+cache.d/
