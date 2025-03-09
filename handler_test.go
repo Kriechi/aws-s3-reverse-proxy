@@ -79,11 +79,11 @@ func verifySignature(w http.ResponseWriter, r *http.Request) {
 	signer.Sign(r, body, "s3", "eu-test-1", signTime)
 	expectedAuthorization := r.Header["Authorization"][0]
 
-    // WORKAROUND S3CMD who dont use white space before the comma in the authorization header
-    // Sanitize fakeReq to remove white spaces before the comma signature
-    receivedAuthorization =  strings.Replace(receivedAuthorization,",Signature",", Signature",1)
-    // Sanitize fakeReq to remove white spaces before the comma signheaders
-    receivedAuthorization =  strings.Replace(receivedAuthorization,",SignedHeaders",", SignedHeaders",1)
+	// WORKAROUND S3CMD who dont use white space before the comma in the authorization header
+	// Sanitize fakeReq to remove white spaces before the comma signature
+	receivedAuthorization = strings.Replace(receivedAuthorization, ",Signature", ", Signature", 1)
+	// Sanitize fakeReq to remove white spaces before the comma signheaders
+	receivedAuthorization = strings.Replace(receivedAuthorization, ",SignedHeaders", ", SignedHeaders", 1)
 
 	// verify signature
 	fmt.Fprintln(w, receivedAuthorization, expectedAuthorization)
@@ -154,10 +154,14 @@ func TestHandlerValidSignatureS3cmd(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "http://foobar.example.com", nil)
 	signRequest(req)
-	authorizationReq := req.Header.Get("Authorization");
-    authorizationReq =  strings.Replace(authorizationReq,", Signature",",Signature",1)
-    authorizationReq =  strings.Replace(authorizationReq,", SignedHeaders",",SignedHeaders",1)
-    req.Header.Set("Authorization",authorizationReq);
+	// get the generated signed authorization header in order to simulate the s3cmd syntax
+	authorizationReq := req.Header.Get("Authorization")
+	// simulating s3cmd syntax and remove the whites space after the comma of the Signature part
+	authorizationReq = strings.Replace(authorizationReq, ", Signature", ",Signature", 1)
+	// simulating s3cmd syntax and remove the whites space before the comma of the SignedHeaders part
+	authorizationReq = strings.Replace(authorizationReq, ", SignedHeaders", ",SignedHeaders", 1)
+	// push the edited authorization header
+	req.Header.Set("Authorization", authorizationReq)
 	resp := httptest.NewRecorder()
 	h.ServeHTTP(resp, req)
 	assert.Equal(t, 200, resp.Code)
