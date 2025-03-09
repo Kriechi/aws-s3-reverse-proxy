@@ -16,7 +16,9 @@ import (
 	v4 "github.com/aws/aws-sdk-go/aws/signer/v4"
 	log "github.com/sirupsen/logrus"
 )
-
+// - new less strict regexp in order to allow different region naming (compatibility with other providers)
+// - east-eu-1 => pass (aws style)
+// - gra => pass (ceph style)
 var awsAuthorizationCredentialRegexp = regexp.MustCompile("Credential=([a-zA-Z0-9]+)/[0-9]+/([a-zA-Z-0-9]+)/s3/aws4_request")
 var awsAuthorizationSignedHeadersRegexp = regexp.MustCompile("SignedHeaders=([a-zA-Z0-9;-]+)")
 
@@ -225,12 +227,16 @@ func (h *Handler) buildUpstreamRequest(req *http.Request) (*http.Request, error)
 		return nil, err
 	}
 
-    //Sanitize fakeReq to remove some white spaces
-    fakeAuthorizationStr :=  strings.Replace(strings.Replace(fakeReq.Header["Authorization"][0],", Signature",",Signature",1),", SignedHeaders",",SignedHeaders",1);
+    // WORKAROUND S3CMD which dont use white space before the some commas in the authorization header
+    fakeAuthorizationStr := fakeReq.Header.Get("Authorization")
+    // Sanitize fakeReq to remove white spaces before the comma signature
+    authorizationStr :=  strings.Replace(req.Header["Authorization"][0],",Signature",", Signature",1)
+    // Sanitize fakeReq to remove white spaces before the comma signheaders
+    authorizationStr =  strings.Replace(authorizationStr,",SignedHeaders",", SignedHeaders",1)
 
 	// Verify that the fake request and the incoming request have the same signature
 	// This ensures it was sent and signed by a client with correct AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
-	cmpResult := subtle.ConstantTimeCompare([]byte(fakeAuthorizationStr), []byte(req.Header["Authorization"][0]))
+	cmpResult := subtle.ConstantTimeCompare([]byte(fakeAuthorizationStr), []byte(authorizationStr))
 	if cmpResult == 0 {
 		v, _ := httputil.DumpRequest(fakeReq, false)
 		log.Debugf("Fake request: %v", string(v))
