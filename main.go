@@ -30,6 +30,7 @@ type Options struct {
 	UpstreamEndpoint      string
 	CertFile              string
 	KeyFile               string
+	StorageClass          string
 }
 
 // NewOptions defines and parses the raw command line arguments
@@ -47,6 +48,7 @@ func NewOptions() Options {
 	kingpin.Flag("upstream-endpoint", "use this S3 endpoint for upstream connections, instead of public AWS S3 (env - UPSTREAM_ENDPOINT)").Envar("UPSTREAM_ENDPOINT").StringVar(&opts.UpstreamEndpoint)
 	kingpin.Flag("cert-file", "path to the certificate file (env - CERT_FILE)").Envar("CERT_FILE").Default("").StringVar(&opts.CertFile)
 	kingpin.Flag("key-file", "path to the private key file (env - KEY_FILE)").Envar("KEY_FILE").Default("").StringVar(&opts.KeyFile)
+	kingpin.Flag("storage-class", "default storage class to use (env - STORAGE_CLASS)").Envar("STORAGE_CLASS").Default("").StringVar(&opts.StorageClass)
 	kingpin.Parse()
 	return opts
 }

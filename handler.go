@@ -48,6 +48,9 @@ type Handler struct {
 
 	// Reverse Proxy
 	Proxy *httputil.ReverseProxy
+
+	// Storage Class
+	StorageClass string
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
