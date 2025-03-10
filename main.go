@@ -100,6 +100,11 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 	}
 	return handler, nil
 }
+//handle /health path
+func health(w http.ResponseWriter, req *http.Request){
+   fmt.Fprintf(w,"ok")
+}
+
 func main() {
 	opts := NewOptions()
 	handler, err := NewAwsS3ReverseProxy(opts)
@@ -135,6 +140,8 @@ func main() {
 	var wrappedHandler http.Handler = handler
 	if len(opts.MetricsListenAddr) > 0 && len(strings.Split(opts.MetricsListenAddr, ":")) == 2 {
 		metricsHandler := http.NewServeMux()
+		//add health on metrics http to serve k8s liveness
+        metricsHandler.HandleFunc("/health", health)
 		metricsHandler.Handle("/metrics", promhttp.Handler())
 
 		log.Infof("Listening for secure Prometheus metrics on %s", opts.MetricsListenAddr)
