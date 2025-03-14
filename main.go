@@ -99,6 +99,7 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 		AllowedSourceSubnet:   parsedAllowedSourceSubnet,
 		AWSCredentials:        parsedAwsCredentials,
 		Signers:               signers,
+		StorageClass:          opts.StorageClass,
 	}
 	return handler, nil
 }
