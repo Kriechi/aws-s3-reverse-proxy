@@ -47,6 +47,7 @@ GitHub](https://github.com/Kriechi/aws-s3-reverse-proxy/releases).
   * uses secure HTTPS for upstream connections by default
   * run as single binary or Docker container
   * configuration via CLI, or using the same options in a config file
+  * force a storage class when proxying request with env (STORAGE_CLASS) or config (--storage-class) 
 
 ## Getting Started
 

@@ -198,7 +198,7 @@ func (h *Handler) assembleUpstreamReq(signer *v4.Signer, req *http.Request, regi
 	}
 	// check if storage class is forced
 	if h.StorageClass != "" {
-		proxyReq.Header["x-amz-storage-class"] = []string{h.StorageClass}
+		proxyReq.Header.Set("X-Amz-Storage-Class", h.StorageClass)
 	}
 	// Sign the upstream request
 	if err := h.sign(signer, proxyReq, region); err != nil {
