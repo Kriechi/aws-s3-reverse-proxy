@@ -230,9 +230,9 @@ func (h *Handler) buildUpstreamRequest(req *http.Request) (*http.Request, error)
 
 	// WORKAROUND S3CMD which dont use white space before the some commas in the authorization header
 	fakeAuthorizationStr := fakeReq.Header.Get("Authorization")
-	// Sanitize fakeReq to remove white spaces before the comma signature
+	// Sanitize fakeReq to add white spaces after the comma signature if missing
 	authorizationStr := strings.Replace(req.Header["Authorization"][0], ",Signature", ", Signature", 1)
-	// Sanitize fakeReq to remove white spaces before the comma signheaders
+	// Sanitize fakeReq to add white spaces after the comma signheaders if missing
 	authorizationStr = strings.Replace(authorizationStr, ",SignedHeaders", ", SignedHeaders", 1)
 
 	// Verify that the fake request and the incoming request have the same signature
