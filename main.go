@@ -100,6 +100,7 @@ func NewAwsS3ReverseProxy(opts Options) (*Handler, error) {
 	}
 	return handler, nil
 }
+
 func main() {
 	opts := NewOptions()
 	handler, err := NewAwsS3ReverseProxy(opts)
