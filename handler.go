@@ -48,6 +48,9 @@ type Handler struct {
 
 	// Reverse Proxy
 	Proxy *httputil.ReverseProxy
+
+	// Storage Class
+	StorageClass string
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -193,7 +196,10 @@ func (h *Handler) assembleUpstreamReq(signer *v4.Signer, req *http.Request, regi
 	if val, ok := req.Header["Content-Md5"]; ok {
 		proxyReq.Header["Content-Md5"] = val
 	}
-
+	// check if storage class is forced
+	if h.StorageClass != "" {
+		proxyReq.Header.Set("X-Amz-Storage-Class", h.StorageClass)
+	}
 	// Sign the upstream request
 	if err := h.sign(signer, proxyReq, region); err != nil {
 		return nil, err
